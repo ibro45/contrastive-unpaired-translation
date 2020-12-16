@@ -44,17 +44,6 @@ class BaseModel(ABC):
         self.metric = 0  # used for learning rate policy 'plateau'
 
     @staticmethod
-    def dict_grad_hook_factory(add_func=lambda x: x):
-        saved_dict = dict()
-
-        def hook_gen(name):
-            def grad_hook(grad):
-                saved_vals = add_func(grad)
-                saved_dict[name] = saved_vals
-            return grad_hook
-        return hook_gen, saved_dict
-
-    @staticmethod
     def modify_commandline_options(parser, is_train):
         """Add new model-specific options, and rewrite default values for existing options.
 
@@ -106,8 +95,8 @@ class BaseModel(ABC):
                 net = getattr(self, 'net' + name)
                 setattr(self, 'net' + name, torch.nn.DataParallel(net, self.opt.gpu_ids))
 
-    def data_dependent_initialize(self, data):
-        pass
+    #def data_dependent_initialize(self, data): # TODO: remove from here and make it run in CUT itself, not elsewhere (e.g. when initialized there is a flag if a forward pass was ran already, if it wasnt, do the data dependent init, otherwise no)
+    #    pass
 
     def eval(self):
         """Make models eval mode during test time"""
@@ -120,15 +109,9 @@ class BaseModel(ABC):
         """Forward function used in test time.
 
         This function wraps <forward> function in no_grad() so we don't save intermediate steps for backprop
-        It also calls <compute_visuals> to produce additional visualization results
         """
         with torch.no_grad():
             self.forward()
-            self.compute_visuals()
-
-    def compute_visuals(self):
-        """Calculate additional output images for visdom and HTML visualization"""
-        pass
 
     def get_image_paths(self):
         """ Return image paths that are used to load current data"""
@@ -179,20 +162,6 @@ class BaseModel(ABC):
                 else:
                     torch.save(net.cpu().state_dict(), save_path)
 
-    def __patch_instance_norm_state_dict(self, state_dict, module, keys, i=0):
-        """Fix InstanceNorm checkpoints incompatibility (prior to 0.4)"""
-        key = keys[i]
-        if i + 1 == len(keys):  # at the end, pointing to a parameter/buffer
-            if module.__class__.__name__.startswith('InstanceNorm') and \
-                    (key == 'running_mean' or key == 'running_var'):
-                if getattr(module, key) is None:
-                    state_dict.pop('.'.join(keys))
-            if module.__class__.__name__.startswith('InstanceNorm') and \
-               (key == 'num_batches_tracked'):
-                state_dict.pop('.'.join(keys))
-        else:
-            self.__patch_instance_norm_state_dict(state_dict, getattr(module, key), keys, i + 1)
-
     def load_networks(self, epoch):
         """Load all the networks from the disk.
 
@@ -218,9 +187,6 @@ class BaseModel(ABC):
                 if hasattr(state_dict, '_metadata'):
                     del state_dict._metadata
 
-                # patch InstanceNorm checkpoints prior to 0.4
-                # for key in list(state_dict.keys()):  # need to copy keys here because we mutate in loop
-                #    self.__patch_instance_norm_state_dict(state_dict, net, key.split('.'))
                 net.load_state_dict(state_dict)
 
     def print_networks(self, verbose):
@@ -253,6 +219,3 @@ class BaseModel(ABC):
             if net is not None:
                 for param in net.parameters():
                     param.requires_grad = requires_grad
-
-    def generate_visuals_for_evaluation(self, data, mode):
-        return {}
